@@ -47,54 +47,120 @@ function getShader(id) {
     return shader
 }
 
-function initShaders() {
-    var fragmentShader = getShader('shader-fs')
-    var vertexShader = getShader('shader-vs')
-    shaderProgram = gl.createProgram()
-    gl.attachShader(shaderProgram, fragmentShader)
-    gl.attachShader(shaderProgram, vertexShader)
-    gl.linkProgram(shaderProgram)
-    if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
-        alert('Tidak bisa menginisialisasi shaders')
+
+function initProj(id){
+    id = id || 'webGL';
+    var canvasGL = document.getElementById(id);
+    canvasGL.width = window.innerWidth; 
+    canvasGL.height = window.innerHeight;
+
+    gl = canvasGL.getContext('experimental-webgl');
+    gl.VIEWPORT_WIDTH = canvasGL.width;
+    gl.VIEWPORT_HEIGHT = canvasGL.height;
+
+    function initShaders() {
+        var fragmentShader = getShader('shader-fs')
+        var vertexShader = getShader('shader-vs')
+
+        this.shaderProgram = gl.createProgram()
+
+        gl.attachShader(this.shaderProgram, fragmentShader)
+        gl.attachShader(this.shaderProgram, vertexShader)
+        gl.linkProgram(this.shaderProgram)
+
+        if (!gl.getProgramParameter(this.shaderProgram, gl.LINK_STATUS)) {
+            alert('Tidak bisa menginisialisasi shaders')
+        }
+
+        gl.useProgram(this.shaderProgram)
+        
+        this.shaderProgram.vertexPositionAttribute = gl.getAttribLocation(this.shaderProgram, 'aVertexPosition')
+        gl.enableVertexAttribArray(this.shaderProgram.vertexPositionAttribute)
+        
+        this.shaderProgram.vertexColorAttribute = gl.getAttribLocation(this.shaderProgram, 'aVertexColor')
+        gl.enableVertexAttribArray(this.shaderProgram.vertexColorAttribute)
+        
+        this.shaderProgram.vertexNormalAttribute = gl.getAttribLocation(this.shaderProgram, "aVertexNormals");
+        gl.enableVertexAttribArray(this.shaderProgram.vertexNormalAttribute);
+
+        this.shaderProgram.textureCoordAttribute = gl.getAttribLocation(this.shaderProgram, "aTextureCoord");
+        gl.enableVertexAttribArray(this.shaderProgram.textureCoordAttribute);
+
+        this.shaderProgram.pMatrixUniform = gl.getUniformLocation(this.shaderProgram, 'uPMatrix')
+        this.shaderProgram.mvMatrixUniform = gl.getUniformLocation(this.shaderProgram, 'uMVMatrix')
+        this.shaderProgram.nMatrixUniform = gl.getUniformLocation(this.shaderProgram, "uNMatrix");
+        this.shaderProgram.samplerUniform = gl.getUniformLocation(this.shaderProgram, "uSampler");
+        this.shaderProgram.useLightingUniform = gl.getUniformLocation(this.shaderProgram, "uUseLighting");
+        this.shaderProgram.ambientColorUniform = gl.getUniformLocation(this.shaderProgram, "uAmbientColor");
+        this.shaderProgram.lightingDirectionUniform = gl.getUniformLocation(this.shaderProgram, "uLightingDirection");
+        this.shaderProgram.pointLightingLocationUniform = gl.getUniformLocation(this.shaderProgram, "uPointLightingLocation");
+        this.shaderProgram.pointLightingColorUniform = gl.getUniformLocation(this.shaderProgram, "uPointLightingColor");
+        this.shaderProgram.alphaUniform = gl.getUniformLocation(this.shaderProgram, "uAlpha");
+        this.shaderProgram.shiniUniform = gl.getUniformLocation(this.shaderProgram, "uShininess");
     }
-    gl.useProgram(shaderProgram)
-    
-    shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, 'aVertexPosition')
-    gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute)
-    
-    shaderProgram.vertexColorAttribute = gl.getAttribLocation(shaderProgram, 'aVertexColor')
-    gl.enableVertexAttribArray(shaderProgram.vertexColorAttribute)
-    
-    shaderProgram.vertexNormalAttribute = gl.getAttribLocation(shaderProgram, "aVertexNormals");
-    gl.enableVertexAttribArray(shaderProgram.vertexNormalAttribute);
 
-    shaderProgram.textureCoordAttribute = gl.getAttribLocation(shaderProgram, "aTextureCoord");
-    gl.enableVertexAttribArray(shaderProgram.textureCoordAttribute);
+    initShaders = initShaders.bind(this);
+    initShaders();
 
-    shaderProgram.pMatrixUniform = gl.getUniformLocation(shaderProgram, 'uPMatrix')
-    shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, 'uMVMatrix')
-    shaderProgram.nMatrixUniform = gl.getUniformLocation(shaderProgram, "uNMatrix");
-    shaderProgram.samplerUniform = gl.getUniformLocation(shaderProgram, "uSampler");
-    shaderProgram.useLightingUniform = gl.getUniformLocation(shaderProgram, "uUseLighting");
-    shaderProgram.ambientColorUniform = gl.getUniformLocation(shaderProgram, "uAmbientColor");
-    shaderProgram.lightingDirectionUniform = gl.getUniformLocation(shaderProgram, "uLightingDirection");
-    shaderProgram.pointLightingLocationUniform = gl.getUniformLocation(shaderProgram, "uPointLightingLocation");
-    shaderProgram.pointLightingColorUniform = gl.getUniformLocation(shaderProgram, "uPointLightingColor");
-    shaderProgram.alphaUniform = gl.getUniformLocation(shaderProgram, "uAlpha");
-    shaderProgram.shiniUniform = gl.getUniformLocation(shaderProgram, "uShininess");
+    this.mvMatrixOne = mat4.create();
+    this.pMatrixOne = mat4.create();
+    this.mvMatrixStackOne = [];
+
+    this.mvMatrixTwo = mat4.create();
+    this.pMatrixTwo = mat4.create();
+    this.mvMatrixStackTwo = [];
+
+    this.mvMatrixThree = mat4.create();
+    this.pMatrixThree = mat4.create();
+    this.mvMatrixStackThree = [];
+
+    this.mvMatrixFour = mat4.create();
+    this.pMatrixFour = mat4.create();
+    this.mvMatrixStackFour = [];
+    
+    this.object3dBuffer = [];
+
+    gl.clearColor(0.0, 0.0, 0.0, 1.0);
+    gl.enable(gl.DEPTH_TEST);
 }
 
-function mvPushMatrix() {
-    var copy = mat4.create()
-    mat4.copy(copy, mvMatrix)
-    mvMatrixStack.push(copy)
+initProj.prototype.mvPushMatrix = function(idx) {
+    let temp = mat4.create();
+
+    let mvMat, mvMatStack;
+    if(idx == 1){
+        mvMat = this.mvMatrixOne;
+        mvMatStack = this.mvMatrixStackOne;
+    } else if(idx == 2){
+        mvMat = this.mvMatrixTwo;
+        mvMatStack = this.mvMatrixStackTwo;
+    } else if(idx == 3) {
+        mvMat = this.mvMatrixThree;
+        mvMatStack = this.mvMatrixStackThree;
+    } else {
+        mvMat = this.mvMatrixFour;
+        mvMatStack = this.mvMatrixStackFour;
+    }
+
+    mat4.copy(temp, mvMat);
+    mvMatStack.push(temp);
 }
 
-function mvPopMatrix() {
-    if (mvMatrixStack.length == 0) {
-        throw 'Tumpukan matrix kosong'
+initProj.prototype.mvPopMatrix = function(idx) {
+    let mvMatStack;
+    if(idx == 1){
+        mvMatStack = this.mvMatrixStackOne;
+        this.mvMatrixOne  = mvMatStack.pop();
+    } else if(idx == 2){
+        mvMatStack = this.mvMatrixStackTwo;
+        this.mvMatrixTwo  = mvMatStack.pop();
+    } else if(idx == 3) {
+        mvMatStack = this.mvMatrixStackThree;
+        this.mvMatrixThree  = mvMatStack.pop();
+    } else {
+        mvMatStack = this.mvMatrixStackFour;
+        this.mvMatrixFour  = mvMatStack.pop();
     }
-    mvMatrix = mvMatrixStack.pop()
 }
 
 function setMatrixUniforms() {
@@ -405,7 +471,7 @@ function tick() {
 }
 
 function webGLStart() {
-    var canvas = document.getElementById('mycanvas')
+    var canvas = start('mycanvas')
     initGL(canvas)
     initShaders()
     initBuffers()
