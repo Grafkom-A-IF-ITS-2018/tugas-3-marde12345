@@ -164,8 +164,28 @@ initProj.prototype.mvPopMatrix = function(idx) {
 }
 
 function setMatrixUniforms() {
-    gl.uniformMatrix4fv(shaderProgram.pMatrixUniform, false, pMatrix)
-    gl.uniformMatrix4fv(shaderProgram.mvMatrixUniform, false, mvMatrix)
+    let tempMatrix = mat3.create();
+
+    let mvMatrix, pMatrix;
+    if(idx == 1){
+        mvMatrix = this.mvMatrixOne;
+        pMatrix = this.pMatrixOne;
+    } else if(idx == 2){
+        mvMatrix = this.mvMatrixTwo;
+        pMatrix = this.pMatrixTwo;
+    } else if(idx == 3) {
+        mvMatrix = this.mvMatrixThree;
+        pMatrix = this.pMatrixThree;
+    } else {
+        mvMatrix = this.mvMatrixFour;
+        pMatrix = this.pMatrixFour;
+    }
+
+    mat3.normalFromMat4(tempMatrix, mvMatrix);
+
+    gl.uniformMatrix4fv(this.shaderProgram.pMatrixUniform, false, pMatrix)
+    gl.uniformMatrix4fv(this.shaderProgram.mvMatrixUniform, false, mvMatrix)
+    gl.uniformMatrix3fv(this.shaderProgram.nMatrixUniform, false, tempMatrix)
 }
 
 function generate3D(vertices, faces) {
