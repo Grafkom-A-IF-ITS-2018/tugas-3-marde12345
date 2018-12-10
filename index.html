@@ -43,13 +43,27 @@
             varying vec3 vLightWeighting;
             varying vec4 vColor;
             void main(void) {
-                gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+                vec4 mvPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
+                gl_Position = uPMatrix * mvPosition;
+                vTextureCoord = aTextureCoord;
                 vColor = aVertexColor;
+
+                if (!uUseLighting) {
+                vLightWeighting = vec3(1.0, 1.0, 1.0);
+            } else {
+                vec3 lightDirection = normalize(uPointLightingLocation - mvPosition.xyz);
+
+                vec3 transformedNormal = uNMatrix * aVertexNormals;
+                float res = dot(transformedNormal, lightDirection);
+                if (res < 0.0) res = -res;
+                float directionalLightWeighting = max(pow(res, uShininess), 0.0);
+                vLightWeighting = uAmbientColor + uPointLightingColor * directionalLightWeighting;
+            }
             }
         </script>
     </head>
     <body>
-        <canvas id="mycanvas" style="border: none" width="800" height="400"></canvas>
+        <canvas id="mycanvas" style="border: none"></canvas>
         <script>
             let GLONE = new initProj('mycanvas');
 
@@ -98,11 +112,7 @@
         //     pointLight.position.z = center[2];
         // })
 
-        //0x156289
-
         tick();
-
-        /*================= Mouse events ======================*/
 
         var eventRightClick = new CustomEvent('right-click');
 
@@ -133,8 +143,8 @@
          var mouseMove = function(e) {
             if(e.which === 1){
                 if (!drag) return false;
-                dX = (e.pageX-old_x)*2*Math.PI/GL.VIEWPORT_WIDTH/2,
-                dY = (e.pageY-old_y)*2*Math.PI/GL.VIEWPORT_HEIGHT/2;
+                dX = (e.pageX-old_x)*2*Math.PI/gl.VIEWPORT_WIDTH/2,
+                dY = (e.pageY-old_y)*2*Math.PI/gl.VIEWPORT_HEIGHT/2;
                 THETA+= dX;
                 PHI+=dY;
                 old_x = e.pageX, old_y = e.pageY;

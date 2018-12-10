@@ -9,6 +9,14 @@ var eventLightFollow = new CustomEvent('light-follow');
 var rotater = 1;
 var dir = [1, 1, 1];
 
+var centerOfR = undefined;
+var centerR = undefined;
+
+var revTranslate = [0.0, 0.0, 0.0];
+var revRotate = 0;
+
+var cameraAngle = 0;
+
 function initGL(canvas) {
     try {
         gl = canvas.getContext('webgl')
@@ -229,19 +237,13 @@ initProj.prototype.add = function(obj) {
         buffer.indices.itemSize = 1;
         buffer.indices.numItems = obj.indices.length / buffer.indices.itemSize;
 
-        if(obj.textureSrc !== undefined) {
-            buffer.texture = gl.createTexture();
-            buffer.texture.loaded = false;
-            buffer.texture.image = new Image();
-            buffer.texture.image.onload = function () {
-                handleLoadedTexture(buffer.texture);
-            }
-            buffer.texture.image.src = obj.textureSrc;
-        } else {
-            buffer.texture = gl.createTexture();
-            buffer.texture.loaded = true;
-            buffer.texture.image = new Image();
+        buffer.texture = gl.createTexture();
+        buffer.texture.loaded = false;
+        buffer.texture.image = new Image();
+        buffer.texture.image.onload = function () {
+            handleLoadedTexture(buffer.texture);
         }
+        buffer.texture.image.src = obj.textureSrc;
 
         buffer.textureCoord = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, buffer.textureCoord);
@@ -299,11 +301,9 @@ initProj.prototype.renderOne = function(sw, sh, ew, eh) {
             gl.bindBuffer(gl.ARRAY_BUFFER, o.textureCoord);
             gl.vertexAttribPointer(this.shaderProgram.textureCoordAttribute, o.textureCoord.itemSize, gl.FLOAT, false, 0, 0);
 
-            if(o.textureSrc !== undefined){
-                gl.activeTexture(gl.TEXTURE0);
-                gl.bindTexture(gl.TEXTURE_2D, o.texture);
-                gl.uniform1i(this.shaderProgram.samplerUniform, 0);
-            }
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, o.texture);
+            gl.uniform1i(this.shaderProgram.samplerUniform, 0);
 
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, o.indices);
 
@@ -329,6 +329,216 @@ initProj.prototype.renderOne = function(sw, sh, ew, eh) {
     }
 
     document.dispatchEvent(eventAfterRender);
+}
+
+initProj.prototype.renderTwo = function(sw, sh, ew, eh) {
+    gl.scissor(sw, sh, ew, eh)
+    gl.viewport(sw, sh, ew, eh);
+    gl.clear(gl.COLOR_BUFFER_BIT, gl.DEPTH_BUFFER_BIT);
+
+    mat4.perspective(this.pMatrixTwo, glMatrix.toRadian(45), gl.VIEWPORT_WIDTH/gl.VIEWPORT_HEIGHT, 0.1, 1000.0)
+
+    mat4.identity(this.mvMatrixTwo);
+
+    mat4.translate(this.mvMatrixTwo, this.mvMatrixTwo, [0.0, 0.0,-50.0])
+
+    document.addEventListener('right-click', function(){
+        THETA = 0;
+        PHI = 0;
+    });
+
+    mat4.rotateY(this.mvMatrixTwo, this.mvMatrixTwo, THETA);
+    mat4.rotateX(this.mvMatrixTwo, this.mvMatrixTwo, PHI);
+
+    for(let i = 0; i < this.object3dBuffer.length; i++) {
+        this.mvPushMatrix(2);
+
+        let o = this.object3dBuffer[i];
+
+        if(o.obj3d.type === 'geometry') {
+            mat4.multiply(this.mvMatrixTwo, this.mvMatrixTwo, o.obj3d.matrixWorld);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.position);
+            gl.vertexAttribPointer(this.shaderProgram.vertexPositionAttribute, o.position.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.color);
+            gl.vertexAttribPointer(this.shaderProgram.vertexColorAttribute, o.color.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.normal);
+            gl.vertexAttribPointer(this.shaderProgram.vertexNormalAttribute, o.normal.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.textureCoord);
+            gl.vertexAttribPointer(this.shaderProgram.textureCoordAttribute, o.textureCoord.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, o.texture);
+            gl.uniform1i(this.shaderProgram.samplerUniform, 0);
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, o.indices);
+
+            let temp = [];
+            for(let i = 0; i < o.obj3d.vertices_.length; i++){
+                temp.push(multiply(this.mvMatrixTwo, o.obj3d.vertices_[i]));
+            }
+            o.obj3d.position = JSON.parse(JSON.stringify(temp));
+
+            this.setMatrixUniform(2);
+
+            gl.drawElements(gl.TRIANGLES, o.indices.numItems, gl.UNSIGNED_SHORT, 0);
+        } 
+        else if (o.obj3d.type === 'ambient-light') {
+            gl.uniform3f(this.shaderProgram.ambientColorUniform, o.obj3d.color.r, o.obj3d.color.g, o.obj3d.color.b);
+        } else if (o.obj3d.type === 'point-light') {
+            gl.uniform3f(this.shaderProgram.pointLightingLocationUniform, o.obj3d.position.x, o.obj3d.position.y, o.obj3d.position.z)
+            gl.uniform3f(this.shaderProgram.pointLightingColorUniform, o.obj3d.color.r, o.obj3d.color.g, o.obj3d.color.b);
+        }
+
+        this.mvPopMatrix(2);
+
+    }
+
+    document.dispatchEvent(eventAfterRender);
+}
+
+initProj.prototype.renderThree = function(sw, sh, ew, eh) {
+    gl.scissor(sw, sh, ew, eh)
+    gl.viewport(sw, sh, ew, eh);
+    gl.clear(gl.COLOR_BUFFER_BIT, gl.DEPTH_BUFFER_BIT);
+
+    mat4.perspective(this.pMatrixThree, glMatrix.toRadian(45), gl.VIEWPORT_WIDTH/gl.VIEWPORT_HEIGHT, 0.1, 1000.0)
+
+    mat4.identity(this.mvMatrixThree);
+
+    let tempMatR = this.object3dBuffer[1].obj3d.matrixWorld;
+
+    for(let i = 0; i < this.object3dBuffer.length; i++) {
+        this.mvPushMatrix(3);
+
+        let o = this.object3dBuffer[i];
+        if(i == 1) continue;
+        if(o.obj3d.type === 'geometry') {
+            revTranslate[0] += (-window.dir[0])*0.1;
+            revTranslate[1] += (-window.dir[1])*0.1;
+            revTranslate[2] += (-window.dir[2])*0.1;
+            revRotate += (-window.rotater*0.5);
+
+
+            let tempMat = Object.assign([], o.obj3d.matrixWorld);
+        
+            mat4.rotate(tempMat, tempMat, glMatrix.toRadian(revRotate), [0, 0, 1]);
+            mat4.translate(tempMat, tempMat, [-revTranslate[0], revTranslate[2], -revTranslate[1]])
+
+            mat4.multiply(this.mvMatrixThree, this.mvMatrixThree, tempMat );
+
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.position);
+            gl.vertexAttribPointer(this.shaderProgram.vertexPositionAttribute, o.position.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.color);
+            gl.vertexAttribPointer(this.shaderProgram.vertexColorAttribute, o.color.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.normal);
+            gl.vertexAttribPointer(this.shaderProgram.vertexNormalAttribute, o.normal.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.textureCoord);
+            gl.vertexAttribPointer(this.shaderProgram.textureCoordAttribute, o.textureCoord.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, o.texture);
+            gl.uniform1i(this.shaderProgram.samplerUniform, 0);
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, o.indices);
+
+            let temp = [];
+            for(let i = 0; i < o.obj3d.vertices_.length; i++){
+                temp.push(multiply(this.mvMatrixThree, o.obj3d.vertices_[i]));
+            }
+            o.obj3d.position = JSON.parse(JSON.stringify(temp));
+            
+            if(i == 1){
+                centerOfR = o.obj3d.findCenterInFrontOf(1);
+                centerR = o.obj3d.findCenter();
+            }
+
+            this.setMatrixUniform(3);
+
+            gl.drawElements(gl.TRIANGLES, o.indices.numItems, gl.UNSIGNED_SHORT, 0);
+        } 
+        else if (o.obj3d.type === 'ambient-light') {
+            gl.uniform3f(this.shaderProgram.ambientColorUniform, o.obj3d.color.r, o.obj3d.color.g, o.obj3d.color.b);
+        } else if (o.obj3d.type === 'point-light') {
+            gl.uniform3f(this.shaderProgram.pointLightingLocationUniform, o.obj3d.position.x, o.obj3d.position.y, o.obj3d.position.z)
+            gl.uniform3f(this.shaderProgram.pointLightingColorUniform, o.obj3d.color.r, o.obj3d.color.g, o.obj3d.color.b);
+        }
+
+        this.mvPopMatrix(3);
+
+    }
+}
+
+initProj.prototype.renderFour = function(sw, sh, ew, eh) {
+    gl.scissor(sw, sh, ew, eh)
+    gl.viewport(sw, sh, ew, eh);
+    gl.clear(gl.COLOR_BUFFER_BIT, gl.DEPTH_BUFFER_BIT);
+
+    mat4.perspective(this.pMatrixFour, glMatrix.toRadian(45), gl.VIEWPORT_WIDTH/gl.VIEWPORT_HEIGHT, 0.1, 1000.0)
+
+    mat4.identity(this.mvMatrixFour);
+
+    let cameraMatrix = mat4.create(), viewMatrix = mat4.create();
+    mat4.rotateY(cameraMatrix, cameraMatrix, cameraAngle);
+    mat4.translate(cameraMatrix, cameraMatrix, [0, 0, 50]);
+    
+    mat4.invert(viewMatrix,cameraMatrix);
+    mat4.multiply(this.pMatrixFour, this.pMatrixFour,  viewMatrix);
+
+    for(let i = 0; i < this.object3dBuffer.length; i++) {
+        this.mvPushMatrix(4);
+
+        let o = this.object3dBuffer[i];
+
+        if(o.obj3d.type === 'geometry') {
+            mat4.multiply(this.mvMatrixFour, this.mvMatrixFour, o.obj3d.matrixWorld);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.position);
+            gl.vertexAttribPointer(this.shaderProgram.vertexPositionAttribute, o.position.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.color);
+            gl.vertexAttribPointer(this.shaderProgram.vertexColorAttribute, o.color.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.normal);
+            gl.vertexAttribPointer(this.shaderProgram.vertexNormalAttribute, o.normal.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.textureCoord);
+            gl.vertexAttribPointer(this.shaderProgram.textureCoordAttribute, o.textureCoord.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, o.texture);
+            gl.uniform1i(this.shaderProgram.samplerUniform, 0);
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, o.indices);
+
+            let temp = [];
+            for(let i = 0; i < o.obj3d.vertices_.length; i++){
+                temp.push(multiply(this.mvMatrixFour, o.obj3d.vertices_[i]));
+            }
+            o.obj3d.position = JSON.parse(JSON.stringify(temp));
+
+            this.setMatrixUniform(4);
+
+            gl.drawElements(gl.TRIANGLES, o.indices.numItems, gl.UNSIGNED_SHORT, 0);
+        } 
+        else if (o.obj3d.type === 'ambient-light') {
+            gl.uniform3f(this.shaderProgram.ambientColorUniform, o.obj3d.color.r, o.obj3d.color.g, o.obj3d.color.b);
+        } else if (o.obj3d.type === 'point-light') {
+            gl.uniform3f(this.shaderProgram.pointLightingLocationUniform, o.obj3d.position.x, o.obj3d.position.y, o.obj3d.position.z)
+            gl.uniform3f(this.shaderProgram.pointLightingColorUniform, o.obj3d.color.r, o.obj3d.color.g, o.obj3d.color.b);
+        }
+
+        this.mvPopMatrix(4);
+
+    }
+    cameraAngle += 0.02;
 }
 
 function Geometry(){
@@ -402,7 +612,6 @@ function Geometry(){
             this.direction[0] += value[0];
             this.direction[1] += value[1];
             this.direction[2] += value[2];
-            console.log(this.direction);
             this.updateMatrixWorld();
         },
         updateMatrixWorld : function() {
@@ -518,9 +727,9 @@ initProj.prototype.render = function() {
     for(let a = 0; a < 2; a++){
         for(let b = 0; b < 2; b++){
             if( a == 0 && b == 0) this.renderOne(0 * width / 2, 1 * height / 2, width / 2, height / 2);
-            // if( a == 0 && b == 1) this.renderTwo(1 * width / 2, 1 * height / 2, width / 2, height / 2);
-            // if( a == 1 && b == 1) this.renderFour(1 * width / 2, 0 * height / 2, width / 2, height / 2);
-            // if( a == 1 && b == 0) this.renderThree(0 * width / 2, 0 * height / 2, width / 2, height / 2);
+            if( a == 0 && b == 1) this.renderTwo(1 * width / 2, 1 * height / 2, width / 2, height / 2);
+            if( a == 1 && b == 0) this.renderThree(0 * width / 2, 0 * height / 2, width / 2, height / 2);
+            if( a == 1 && b == 1) this.renderFour(1 * width / 2, 0 * height / 2, width / 2, height / 2);
         }
     }
 }
@@ -535,10 +744,9 @@ function Color(hex){
     this.b = parseInt(values[4].toString() + values[5].toString(), 16);
 }
 
-function AmbientLight(color, intensity = 0.2) {
+function AmbientLight(color, intensity = 1.0) {
     this.type = 'ambient-light';
     this.color = {};
-    console.log(color);
     this.color.r = (color.r - 0)/255 * intensity;
     this.color.g = (color.g - 0)/255 * intensity;
     this.color.b = (color.b - 0)/255 * intensity;
