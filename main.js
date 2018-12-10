@@ -4,6 +4,10 @@ var shaderProgram
 var mvMatrix = mat4.create()
 var mvMatrixStack = []
 var pMatrix = mat4.create()
+var eventAfterRender = new CustomEvent('after-render');
+var eventLightFollow = new CustomEvent('light-follow');
+var rotater = 1;
+var dir = [1, 1, 1];
 
 function initGL(canvas) {
     try {
@@ -163,7 +167,7 @@ initProj.prototype.mvPopMatrix = function(idx) {
     }
 }
 
-function setMatrixUniforms() {
+initProj.prototype.setMatrixUniform = function(idx) {
     let tempMatrix = mat3.create();
 
     let mvMatrix, pMatrix;
@@ -188,314 +192,372 @@ function setMatrixUniforms() {
     gl.uniformMatrix3fv(this.shaderProgram.nMatrixUniform, false, tempMatrix)
 }
 
-function generate3D(vertices, faces) {
-    var result = []
-    for (var a=0;a<faces.length;a++) {
-        for(var b=0;b<faces[a].length;b++){
-            result = result.concat(vertices[faces[a][b]])
-        }
-    }
-    return result
+async function handleLoadedTexture(texture) {
+    await gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    await gl.bindTexture(gl.TEXTURE_2D, texture);
+    
+    await gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texture.image);
+    await gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    await gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    0.5
+0.5
+    texture.loaded = true;
 }
 
-function generateColor(vertices, faces) {
-    var result = []
-    var color_map = []
-    for (var a=0;a<vertices.length;a++) {
-        color_map.push([Math.random(), Math.random(), Math.random(), 1.0])
-    }
-    for (var a=0;a<faces.length;a++) {
-        for (var b=0;b<faces[a].length;b++) {
-            result = result.concat(color_map[faces[a][b]])
-        }
-    }
-    return result
-}
+initProj.prototype.add = function(obj) {
+    let buffer = {}
+    if(obj.type === 'geometry') {
+        buffer.id = obj.id;
 
-function vertexPosition(vertexs, matrix) {
-    var result = []
-    vertexs.push(1.0)
-    for (var a=0;a<4;a++) {
-        result.push((vertexs[0]*matrix[a]) + (vertexs[1]*matrix[a+4]) + (vertexs[2]*matrix[a+8]) + (vertexs[3]*matrix[a+12]))
-    }
-    result.pop()
-    return result
-}
+        buffer.obj3d = obj;
 
-function checkCollision(outer_matrix, huruf_matrix) {
-    var realPos = []
-    var outerFrag = []
-    for (var a=0;a<objectBounderies.length;a++) {
-        realPos.push(vertexPosition(objectBounderies[a], huruf_matrix))
-    }
-    for (var a=0;a<outerBounderies.length;a++) {
-        outerFrag.push(vertexPosition(outerBounderies[a], outer_matrix))
-    }
-    for (var a=0;a<realPos.length;a++) {
-        if (realPos[a][0] >= outerFrag[0][0]) {
-            if (objectVertex[0] > 0) {
-                objectVertex[0] = objectVertex[0] * -1.0
-                objectRotation = objectRotation * -1.0
+        buffer.position = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer.position);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.vertices), gl.STATIC_DRAW);
+        buffer.position.itemSize = 3;
+        buffer.position.numItems = obj.vertices.length / buffer.position.itemSize;
+
+        buffer.normal = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer.normal);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.normals), gl.STATIC_DRAW);
+        buffer.normal.itemSize = 3;
+        buffer.normal.numItems = obj.normals.length / buffer.normal.itemSize;
+
+        buffer.indices = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer.indices);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(obj.indices), gl.STATIC_DRAW);
+        buffer.indices.itemSize = 1;
+        buffer.indices.numItems = obj.indices.length / buffer.indices.itemSize;
+
+        if(obj.textureSrc !== undefined) {
+            buffer.texture = gl.createTexture();
+            buffer.texture.loaded = false;
+            buffer.texture.image = new Image();
+            buffer.texture.image.onload = function () {
+                handleLoadedTexture(buffer.texture);
             }
+            buffer.texture.image.src = obj.textureSrc;
+        } else {
+            buffer.texture = gl.createTexture();
+            buffer.texture.loaded = true;
+            buffer.texture.image = new Image();
         }
-        if(realPos[a][0] <= outerFrag[1][0]) {
-            if (objectVertex[0] < 0){
-                objectVertex[0] = objectVertex[0] * -1.0
-                objectRotation = objectRotation * -1.0
+
+        buffer.textureCoord = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer.textureCoord);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.textureCoord), gl.STATIC_DRAW);
+        buffer.textureCoord.itemSize = 2;
+        buffer.textureCoord.numItems = obj.textureCoord.length / buffer.textureCoord.itemSize;
+
+        buffer.color = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer.color);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.colors), gl.STATIC_DRAW);
+        buffer.color.itemSize = 4;
+        buffer.color.numItems = obj.colors.length / buffer.color.itemSize;
+
+        this.object3dBuffer.push(buffer);
+    } else {
+        gl.uniform1i(this.shaderProgram.useLightingUniform, 1);
+        gl.uniform1f(this.shaderProgram.shiniUniform, 5.0);
+        buffer.obj3d = obj;
+
+        this.object3dBuffer.push(buffer);
+    }
+}
+
+initProj.prototype.renderOne = function(sw, sh, ew, eh) {
+    gl.scissor(sw, sh, ew, eh)
+    gl.viewport(sw, sh, ew, eh);
+    gl.clear(gl.COLOR_BUFFER_BIT, gl.DEPTH_BUFFER_BIT);
+
+    mat4.perspective(this.pMatrixOne, glMatrix.toRadian(45), gl.VIEWPORT_WIDTH/gl.VIEWPORT_HEIGHT, 0.1, 1000.0)
+
+    mat4.identity(this.mvMatrixOne);
+
+    mat4.translate(this.mvMatrixOne, this.mvMatrixOne, [0.0, 0.0,-50.0])
+
+    for(let i = 0; i < this.object3dBuffer.length; i++) {
+        this.mvPushMatrix(1);
+
+        let o = this.object3dBuffer[i];
+
+        if(o.obj3d.type === 'geometry') {
+            var ev = new CustomEvent(o.id);
+
+            document.dispatchEvent(ev);
+            mat4.multiply(this.mvMatrixOne, this.mvMatrixOne, o.obj3d.matrixWorld);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.position);
+            gl.vertexAttribPointer(this.shaderProgram.vertexPositionAttribute, o.position.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.color);
+            gl.vertexAttribPointer(this.shaderProgram.vertexColorAttribute, o.color.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.normal);
+            gl.vertexAttribPointer(this.shaderProgram.vertexNormalAttribute, o.normal.itemSize, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, o.textureCoord);
+            gl.vertexAttribPointer(this.shaderProgram.textureCoordAttribute, o.textureCoord.itemSize, gl.FLOAT, false, 0, 0);
+
+            if(o.textureSrc !== undefined){
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, o.texture);
+                gl.uniform1i(this.shaderProgram.samplerUniform, 0);
             }
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, o.indices);
+
+            let temp = [];
+            for(let i = 0; i < o.obj3d.vertices_.length; i++){
+                temp.push(multiply(this.mvMatrixOne, o.obj3d.vertices_[i]));
+            }
+            o.obj3d.position = JSON.parse(JSON.stringify(temp));
+
+            this.setMatrixUniform(1);
+
+            gl.drawElements(gl.TRIANGLES, o.indices.numItems, gl.UNSIGNED_SHORT, 0);
+        } else if (o.obj3d.type === 'ambient-light') {
+            gl.uniform3f(this.shaderProgram.ambientColorUniform, o.obj3d.color.r, o.obj3d.color.g, o.obj3d.color.b);
+        } else if (o.obj3d.type === 'point-light') {
+            document.dispatchEvent(eventLightFollow);
+            gl.uniform3f(this.shaderProgram.pointLightingLocationUniform, o.obj3d.position.x, o.obj3d.position.y, o.obj3d.position.z)
+            gl.uniform3f(this.shaderProgram.pointLightingColorUniform, o.obj3d.color.r, o.obj3d.color.g, o.obj3d.color.b);
         }
-        if (realPos[a][1] >= outerFrag[0][1]) {
-            if (objectVertex[1] > 0) {
-                objectVertex[1] = objectVertex[1] * -1.0
-                objectRotation = objectRotation * -1.0
+
+        this.mvPopMatrix(1);
+
+    }
+
+    document.dispatchEvent(eventAfterRender);
+}
+
+function Geometry(){
+    this.id = btoa(Math.random()).substring(0,12);
+    this.matrixWorld = mat4.create();
+
+    this.temporaryMatrixWorld = undefined;
+
+    this.rotation = {
+        _x : 0,
+        _y : 0,
+        _z : 0,
+        updateMatrixWorld : function(deg, array) {
+            mat4.rotate(this.matrixWorld, this.matrixWorld, glMatrix.toRadian(deg), array);
+        }.bind(this)
+    }
+    Object.defineProperties(this.rotation, {
+        x : {
+            get : function () {
+                return this._x;
+            },
+
+            set: function (value) {
+                this._x = value;
+                this.updateMatrixWorld(this._x, [1, 0, 0]);
             }
+        },
+        y : {
+            get : function () {
+                return this._y;
+            },
+
+            set: function (value) {
+                this._y = value;
+                this.updateMatrixWorld(this._y, [0, 1, 0]);
+            }
+        },
+        z : {
+            get : function () {
+                return this._z;
+            },
+
+            set: function (value) {
+                this._z = value;
+                this.updateMatrixWorld(this._z, [0, 0, 1]);
+            }
+        },
+    });
+
+    this.translate = {
+        to : [0, 0, 0],
+        updateMatrixWorld : function() {
+            mat4.translate(this.matrixWorld, this.matrixWorld, this.translate.to);
+        }.bind(this)
+    }
+    Object.defineProperties(this.translate,{
+        mat : {
+            get : function () {
+                return this.to;
+            },
+            set : function (value) {
+                this.to = value;
+                this.updateMatrixWorld();
+            },
+        },
+    });
+
+    this.move = {
+        direction : [0, 0, 0],
+        vector : function(value) {
+            this.direction[0] += value[0];
+            this.direction[1] += value[1];
+            this.direction[2] += value[2];
+            console.log(this.direction);
+            this.updateMatrixWorld();
+        },
+        updateMatrixWorld : function() {
+            mat4.translate(this.matrixWorld, this.matrixWorld, this.move.direction);
+        }.bind(this)
+    }
+
+}
+Geometry.prototype.constructor = Geometry;
+
+function BoxGeometry(depth, width, height, step = 1, colored = false){
+    Geometry.call(this);
+
+    this.type = 'geometry';
+    this.indices = [];
+    this.vertices = [];
+    this.vertices_ = [];
+    this.normals = [];
+    this.colors = [];
+    this.textureCoord = [];
+    this.textureSrc = undefined;
+    this.position = [];
+
+    this.step = step;
+
+    var d = depth / 2;
+    var w = width / 2;
+    var h = height / 2;
+
+    var counter = 0;
+    for(let i = 0; i < 6; i+=step, counter++){
+        for(let j = 0; j < 4; j++){
+            var x = d, y = w, z = h;
+            if(i & 4){ // LEFT RIGHT
+                x *= (i&1)? -1 : 1;
+                y *= (j&2)? 1 : -1;
+                z *= (j&1)? 1 : -1;
+                this.normals.push(1.0, 0, 0);
+            } else if ( i & 2) { // BOTTOM TOP
+                x *= (j&2)? 1 : -1;
+                y *= (i&1)? -1 : 1;
+                z *= (j&1)? 1 : -1;
+                this.normals.push(0, 1.0, 0);
+            } else { // FRONT BACK
+                x *= (j&2)? 1 : -1;
+                y *= (j&1)? 1 : -1;
+                z *= (i&1)? -1 : 1;
+                this.normals.push(0, 0, 1.0);
+            }
+            this.vertices.push(x, y, z);
+            if(colored) this.colors.push(1.0, 1.0, 1.0, 1.0);
+            else this.colors.push(0.0, 0.0, 0.0, 1.0);
         }
-        if(realPos[a][1] <= outerFrag[1][1]) {
-            if (objectVertex[1] < 0) {
-                objectVertex[1] = objectVertex[1] * -1.0
-                objectRotation = objectRotation * -1.0
+        var p = counter * 4;
+        var q = counter * 4 + 1;
+        var r = counter * 4 + 2;
+        var s = counter * 4 + 3;
+        this.indices.push(p, q, r);
+        this.indices.push(q, r, s);
+    }
+
+    for(let i = 0; i < 6 / 3; i++, counter++){
+        for(let j = 0; j < 4; j++){
+            var x = d, y = w, z = h;
+            if ( i & 2) { // BOTTOM TOP
+                x *= (j&2)? 1 : -1;
+                y *= (i&1)? -1 : 1;
+                z *= (j&1)? 1 : -1;
+            } else { // FRONT BACK
+                x *= (j&2)? 1 : -1;
+                y *= (j&1)? 1 : -1;
+                z *= (i&1)? -1 : 1;
             }
-        }
-        if (realPos[a][2] >= outerFrag[0][2]) {
-            if (objectVertex[2] > 0) {
-                objectVertex[2] = objectVertex[2] * -1.0
-                objectRotation = objectRotation * -1.0
-            }
-        }
-        if(realPos[a][2] <= outerFrag[1][2]) {
-            if (objectVertex[2] < 0) {
-                objectVertex[2] = objectVertex[2] * -1.0
-                objectRotation = objectRotation * -1.0
-            }
+            this.vertices_.push([x, y, z, 1.0]);
+            this.position.push([x, y, z, 1.0]);
         }
     }
 }
 
-var object
-var objectColor
-var objectBounderies
-var objectAngle = 0
-var objectRotation = 1.0*(Math.random() < 0.5 ? -1 : 1)
-var objectTranslate = [0.0, 0.0, 0.0]
-var objectVertex = [0.1*(Math.random() < 0.5 ? -1 : 1), 0.1*(Math.random() < 0.5 ? -1 : 1), 0.1*(Math.random() < 0.5 ? -1 : 1)]
+BoxGeometry.prototype.constructor = BoxGeometry;
 
-var outer
-var outerColor
-var outerBounderies
-
-var AColor = []
-var Ccolor = []
-
-function initBuffers() {
-    var AVertex = [
-        [-4.0, 7.0, 1.0], //m 0
-        [4.0, 7.0, 1.0], //l 1
-        [4.0, 5.0, 1.0], //k 2
-        [-2.0, 5.0, 1.0], //j 3
-        [-2.0, 1.0, 1.0], //i 4
- 
-        [4.0, 1.0, 1.0], //h 5
-        [4.0, -1.0, 1.0], //g 6
-        [-2.0, -1.0, 1.0], //f 7
-        [-2.0, -5.0, 1.0], //e 8
-        [4.0, -5.0, 1.0], //d 9
-        
-        [4.0, -7.0, 1.0], //c 10
-        [-4.0, -7.0, 1.0], //b 11
-        [-4.0, 7.0, -1.0], //m
-        [4.0, 7.0, -1.0], //l
-        [4.0, 5.0, -1.0], //k
-
-        [-2.0, 5.0, -1.0], //j
-        [-2.0, 1.0, -1.0], //i
-        [4.0, 1.0, -1.0], //h
-        [4.0, -1.0, -1.0], //g
-        [-2.0, -1.0, -1.0], //f
-
-        [-2.0, -5.0, -1.0], //e
-        [4.0, -5.0, -1.0], //d
-        [4.0, -7.0, -1.0], //c
-        [-4.0, -7.0, -1.0] //b
-    ]
-    var AFaces = [
-        [0, 1, 2],
-        [0, 2, 3],
-        [0, 3, 11],
-        [11, 3, 8],
-        [8, 11, 10],
-        [8, 10, 9],
-        [4, 7, 6],
-        [4, 5, 6],
-
-        [12, 13, 14],
-        [12, 14, 15],
-        [12, 15, 23],
-        [23, 15, 20],
-        [20, 23, 22],
-        [20, 22, 21],
-        [16, 19, 18],
-        [16, 17, 18],
-
-        [0, 11, 23],
-        [12, 0, 23],
-
-        [11, 10, 22],
-        [11, 23, 22],
-
-        [9, 10, 22],
-        [9, 21, 22],
-
-        [8, 9, 21],
-        [8, 20, 21],
-
-        [7, 8, 20],
-        [7, 19, 20],
-
-        [6, 7, 19],
-        [6, 18, 19],
-
-        [5, 6, 18],
-        [5, 17, 18],
-
-        [4, 5, 17],
-        [4, 16, 17],
-
-        [3, 4, 16],
-        [3, 15, 16],
-
-        [2, 3, 15],
-        [2, 14, 15],
-
-        [1, 2, 14],
-        [1, 13, 14],
-
-        [0, 1, 13],
-        [0, 12, 13]
-    ]
-
-    var Hvertices = generate3D(AVertex, AFaces)
-    AColor = generateColor(AVertex, AFaces)
-    object = gl.createBuffer()
-    gl.bindBuffer(gl.ARRAY_BUFFER, object)
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(Hvertices), gl.STATIC_DRAW)
-    object.itemSize = 3
-    object.numItems = Hvertices.length / 3
-    objectColor = gl.createBuffer()
-    gl.bindBuffer(gl.ARRAY_BUFFER, objectColor)
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(AColor), gl.STATIC_DRAW)
-    objectColor.itemSize = 4
-    objectColor.numItems = object.numItems
-    objectBounderies = [
-        [-4.0, 7.0, 1.0],
-        [4.0, 7.0, 1.0],
-        [4.0, -7.0, 1.0],
-        [-4.0, -7.0, 1.0],
-        [-4.0, 7.0, -1.0],
-        [4.0, 7.0, -1.0],
-        [4.0, -7.0, -1.0],
-        [-4.0, -7.0, -1.0],
-    ]
-
-    var Cvertex = [
-        [-25.0, 25.0, 25.0],
-        [-25.0, -25.0, 25.0],
-        [25.0, 25.0, 25.0],
-        [25.0, -25.0, 25.0],
-        [-25.0, 25.0, -25.0],
-        [-25.0, -25.0, -25.0],
-        [25.0, 25.0, -25.0],
-        [25.0, -25.0, -25.0],
-    ]
-    var Cfaces = [
-        [0,2],
-        [0,4],
-        [4,6],
-        [2,6],
-        [4,5],
-        [6,7],
-        [0,1],
-        [2,3],
-        [1,5],
-        [5,7],
-        [3,7],
-        [1,3]
-    ]
-    var Cvertices = generate3D(Cvertex, Cfaces)
-    Ccolor = generateColor(Cvertex, Cfaces)
-    outer = gl.createBuffer()
-    gl.bindBuffer(gl.ARRAY_BUFFER, outer)
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(Cvertices), gl.STATIC_DRAW)
-    outer.itemSize = 3
-    outer.numItems = Cvertices.length / 3
-    outerColor = gl.createBuffer()
-    gl.bindBuffer(gl.ARRAY_BUFFER, outerColor)
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(Ccolor), gl.STATIC_DRAW)
-    outerColor.itemSize = 4
-    outerColor.numItems = outer.numItems
-    outerBounderies = [
-        [25.0, 25.0, 25.0],
-        [-25.0, -25.0, -25.0]
-    ]
-}
-
-function drawScene() {
-    gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight)
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-    mat4.perspective(pMatrix, glMatrix.toRadian(45), gl.viewportWidth / gl.viewportHeight, 0.1, 200.0)
-    mat4.identity(mvMatrix)
-    mat4.translate(mvMatrix, mvMatrix, [0.0, 0.0, -100.0])
-    mvPushMatrix()
-    gl.bindBuffer(gl.ARRAY_BUFFER, outer)
-    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, outer.itemSize, gl.FLOAT, false, 0, 0)
-    gl.bindBuffer(gl.ARRAY_BUFFER, outerColor)
-    gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, outerColor.itemSize, gl.FLOAT, false, 0, 0)
-    var outer_matrix = mat4.create()
-    mat4.copy(outer_matrix, mvMatrix)
-    //mat4.rotate(mvMatrix, mvMatrix, glMatrix.toRadian(objectAngle), [1.0, 1.0, 0.0])
-    setMatrixUniforms()
-    gl.drawArrays(gl.LINES, 0, outer.numItems)
-    mvPopMatrix()
-
-    mvPushMatrix()
-    mat4.translate(mvMatrix, mvMatrix, objectTranslate)
-    mat4.rotate(mvMatrix, mvMatrix, glMatrix.toRadian(objectAngle), [0.4, 2.0, 0.0])
-    gl.bindBuffer(gl.ARRAY_BUFFER, object)
-    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, object.itemSize, gl.FLOAT, false, 0, 0)
-    gl.bindBuffer(gl.ARRAY_BUFFER, objectColor)
-    gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, objectColor.itemSize, gl.FLOAT, false, 0, 0)
-    var huruf_matrix = mat4.create()
-    mat4.copy(huruf_matrix, mvMatrix)
-    setMatrixUniforms()
-    gl.drawArrays(gl.TRIANGLES, 0, object.numItems)
-    mvPopMatrix()
-    checkCollision(outer_matrix, huruf_matrix)
-}
-
-var lastTime = 0
-function animate() {
-    var timeNow = new Date().getTime()
-    if (lastTime != 0) {
-        var elapsed = timeNow - lastTime
-        objectAngle += ((90 * elapsed) / 1000.0)*objectRotation
-        objectTranslate[0] += objectVertex[0]
-        objectTranslate[1] += objectVertex[1]
-        objectTranslate[2] += objectVertex[2]
+BoxGeometry.prototype.addTexture = function(src) {
+    this.textureSrc = src;
+    for(let i = 0; i < 6; i+=this.step){
+        this.textureCoord.push(0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0);
     }
-    lastTime = timeNow
 }
 
-function tick() {
-    requestAnimationFrame(tick)
-    drawScene()
-    animate()
+BoxGeometry.prototype.render = function() {
+    this.temporaryMatrixWorld = this.matrixWorld;
+    document.addEventListener(this.id, this.action.bind(this));
 }
 
-function webGLStart() {
-    var canvas = start('mycanvas')
-    initGL(canvas)
-    initShaders()
-    initBuffers()
-    gl.clearColor(0.0, 0.0, 0.0, 1.0)
-    gl.enable(gl.DEPTH_TEST)
-    tick()
+BoxGeometry.prototype.findCenter = function() {
+    let center = [0, 0, 0];
+    for(let i = 0; i < this.position.length; i++){
+        center[0] += this.position[i][0];
+        center[1] += this.position[i][1];
+        center[2] += this.position[i][2];
+    }
+    center[0] /= this.position.length;
+    center[1] /= this.position.length;
+    center[2] /= this.position.length;
+    return center;
+}
+
+initProj.prototype.render = function() {
+    gl.enable(gl.SCISSOR_TEST);
+
+    let width = gl.VIEWPORT_WIDTH;
+    let height = gl.VIEWPORT_HEIGHT;
+
+    for(let a = 0; a < 2; a++){
+        for(let b = 0; b < 2; b++){
+            if( a == 0 && b == 0) this.renderOne(0 * width / 2, 1 * height / 2, width / 2, height / 2);
+            // if( a == 0 && b == 1) this.renderTwo(1 * width / 2, 1 * height / 2, width / 2, height / 2);
+            // if( a == 1 && b == 1) this.renderFour(1 * width / 2, 0 * height / 2, width / 2, height / 2);
+            // if( a == 1 && b == 0) this.renderThree(0 * width / 2, 0 * height / 2, width / 2, height / 2);
+        }
+    }
+}
+
+function Color(hex){
+    if(hex.charAt(0) == '0' && hex.charAt(1) === 'x'){
+        hex = hex.substr(2);
+    }
+    let values = hex.split('');
+    this.r = parseInt(values[0].toString() + values[1].toString(), 16);
+    this.g = parseInt(values[2].toString() + values[3].toString(), 16);
+    this.b = parseInt(values[4].toString() + values[5].toString(), 16);
+}
+
+function AmbientLight(color, intensity = 0.2) {
+    this.type = 'ambient-light';
+    this.color = {};
+    console.log(color);
+    this.color.r = (color.r - 0)/255 * intensity;
+    this.color.g = (color.g - 0)/255 * intensity;
+    this.color.b = (color.b - 0)/255 * intensity;
+}
+
+function PointLight(color, position) {
+    this.type = 'point-light';
+    this.color = {};
+    this.color.r = (color.r - 0)/255;
+    this.color.g = (color.g - 0)/255;
+    this.color.b = (color.b - 0)/255;
+    this.position = position;
+}
+
+function multiply(a,b) {
+    let c1,c2,c3,c4;
+    c1 = a[0]*b[0] + a[4]*b[1] + a[8]*b[2] + a[12]*b[3]
+    c2 = a[1]*b[0] + a[5]*b[1] + a[9]*b[2] + a[13]*b[3]
+    c3 = a[2]*b[0] + a[6]*b[1] + a[10]*b[2] + a[14]*b[3]
+    c4 = a[3]*b[0] + a[7]*b[1] + a[11]*b[2] + a[15]*b[3]
+    return [c1,c2,c3,c4]
 }

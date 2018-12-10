@@ -48,7 +48,107 @@
             }
         </script>
     </head>
-    <body onload="webGLStart();">
+    <body>
         <canvas id="mycanvas" style="border: none" width="800" height="400"></canvas>
+        <script>
+            let GLONE = new initProj('mycanvas');
+
+        let boxCrate = new BoxGeometry(24, 24, 24, 2);
+        boxCrate.rotation.y = 135;
+        boxCrate.rotation.x = 90;
+        boxCrate.addTexture('Crate.jpg');
+        boxCrate.action = () => {
+            
+        };
+        boxCrate.render();
+        GLONE.add(boxCrate);
+
+        // let r = new RGeometry();
+        // r.rotation.y = 45;
+        // r.action = () => {
+        //     r.matrixWorld = Object.assign({},r.temporaryMatrixWorld);
+        //     r.move.vector([window.dir[0]*0.1, window.dir[1]*0.1, window.dir[2]*0.1]);
+        //     r.rotation.y += window.rotater*0.5;
+        //     r.translate.mat = [-1.5, -3.0, -0.5];
+        // };
+        // r.render();
+        // GLONE.add(r);
+
+        let ambientLight = new AmbientLight(new Color("0xFFFFFF"));
+        GLONE.add(ambientLight);
+
+        let pointLight = new PointLight(new Color("0x156289"), {x:0, y:5, z:-35});
+        GLONE.add(pointLight);
+
+        const tick = () => {
+            requestAnimationFrame(tick);
+            GLONE.render();
+        }
+
+        // document.addEventListener('after-render', function(){
+        //     let collisionDetector = new CollisionDetector(boxCrate, r);
+        //     collisionDetector.buildCollider();
+        //     collisionDetector.detect();
+        // });
+
+        // document.addEventListener('light-follow', function(){
+        //     let center = r.findCenter();
+        //     pointLight.position.x = center[0];
+        //     pointLight.position.y = center[1];
+        //     pointLight.position.z = center[2];
+        // })
+
+        //0x156289
+
+        tick();
+
+        /*================= Mouse events ======================*/
+
+        var eventRightClick = new CustomEvent('right-click');
+
+         var AMORTIZATION = 0.95;
+         var drag = false;
+         var old_x, old_y;
+         var dX = 0, dY = 0;
+         var THETA = 0, PHI = 0;
+
+         var mouseDown = function(e) {
+            if(e.which === 1){
+                drag = true;
+                old_x = e.pageX, old_y = e.pageY;
+                e.preventDefault();
+                return false;
+            } else if (e.which === 3){
+                e.preventDefault();
+                document.dispatchEvent(eventRightClick);
+            }
+         };
+
+         var mouseUp = function(e){
+            if(e.which ===  1){
+                drag = false;
+            }
+         };
+
+         var mouseMove = function(e) {
+            if(e.which === 1){
+                if (!drag) return false;
+                dX = (e.pageX-old_x)*2*Math.PI/GL.VIEWPORT_WIDTH/2,
+                dY = (e.pageY-old_y)*2*Math.PI/GL.VIEWPORT_HEIGHT/2;
+                THETA+= dX;
+                PHI+=dY;
+                old_x = e.pageX, old_y = e.pageY;
+                e.preventDefault();
+            }
+         };
+
+         document.addEventListener("mousedown", mouseDown, false);
+         document.addEventListener("mouseup", mouseUp, false);
+         document.addEventListener("mouseout", mouseUp, false);
+         document.addEventListener("mousemove", mouseMove, false);
+         window.oncontextmenu = function (){
+            return false;     // cancel default menu
+        }
+        </script>
     </body>
 </html>
